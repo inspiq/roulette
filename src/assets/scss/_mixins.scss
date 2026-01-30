@@ -1,0 +1,51 @@
+// Миксин для адаптивных медиа-запросов
+@mixin respond-to($breakpoint) {
+    @if $breakpoint == mobile {
+        @media (min-width: 480px) {
+            @content;
+        }
+    } @else if $breakpoint == tablet {
+        @media (min-width: 768px) {
+            @content;
+        }
+    } @else if $breakpoint == desktop {
+        @media (min-width: 1024px) {
+            @content;
+        }
+    }
+}
+
+// Миксин для карточек
+@mixin card {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    padding: 1.5rem;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.3s ease;
+
+    &:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+}
+
+// Миксин для кнопок
+@mixin button {
+    padding: 0.6rem 1.2rem;
+    border-radius: 8px;
+    border: none;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+
+    &:hover {
+        transform: scale(1.05);
+    }
+
+    &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+    }
+}
