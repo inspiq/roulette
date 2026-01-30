@@ -5,7 +5,7 @@ import { analyzeRouletteHistory } from '@/services/analysisService';
 import type { RouletteNumber, HistoryEntry } from '@/types/roulette';
 import NumberInput from './NumberInput.vue';
 import HistoryList from './HistoryList.vue';
-import StatisticsPanel from './StatisticsPanel.vue';
+// import StatisticsPanel from './StatisticsPanel.vue';
 import ProbabilityChart from './ProbabilityChart.vue';
 import RecommendationsPanel from './RecommendationsPanel.vue';
 // import CombinationsPanel from './CombinationsPanel.vue';
@@ -99,10 +99,10 @@ const analysis = computed(() => {
       </section> -->
 
       <!-- Сводка по каждому числу -->
-      <section class="section statistics-section">
+      <!-- <section class="section statistics-section">
         <h2>Сводка по каждому числу</h2>
         <StatisticsPanel :statistics="analysis.numberStats" :total-spins="analysis.totalSpins" />
-      </section>
+      </section> -->
 
       <!-- История спинов -->
       <section class="section history-section">

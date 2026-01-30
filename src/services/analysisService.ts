@@ -6,12 +6,31 @@ import type {
   OverallStatistics,
   AnalysisConfig,
   PairCombination,
+  TripleCombination,
+  QuadrupleCombination,
   CombinationStats,
   StreakBreakStats,
   StreakBreakItem,
   RouletteNumber,
 } from '@/types/roulette';
 import { ROULETTE_NUMBERS } from '@/types/roulette';
+
+// Точный процент: 100 * count / total (total === 0 → 0)
+function exactPercent(count: number, total: number): number {
+  if (total <= 0) return 0;
+  return (count / total) * 100;
+}
+
+// Нормализация: сумма процентов в группе = 100 (только при наличии данных, исправление погрешности float)
+function normalizePercentages<T extends { count: number; percentage: number }>(items: T[]): void {
+  if (items.length === 0) return;
+  const sum = items.reduce((s, i) => s + i.percentage, 0);
+  if (sum < 0.01) return; // нет данных — не присваивать 100% одному элементу
+  const diff = 100 - sum;
+  if (Math.abs(diff) < 1e-10) return;
+  const maxIdx = items.reduce((best, item, i) => (item.count > (items[best]?.count ?? -1) ? i : best), 0);
+  items[maxIdx].percentage += diff;
+}
 
 // Конфигурация по умолчанию
 const DEFAULT_CONFIG: AnalysisConfig = {
@@ -33,7 +52,7 @@ function calculateNumberStatistics(
   return ROULETTE_NUMBERS.map((number) => {
     const occurrences = history.filter((entry) => entry.number === number);
     const count = occurrences.length;
-    const percentage = totalSpins > 0 ? (count / totalSpins) * 100 : 0;
+    const percentage = exactPercent(count, totalSpins);
 
     // Находим индекс последнего выпадения
     let lastSeenIndex: number | null = null;
@@ -72,6 +91,20 @@ function calculateNumberStatistics(
     const isHot = recentPercentage >= config.hotThreshold;
     const isCold = recentPercentage <= config.coldThreshold && recentSpins.length >= config.recentSpinsWindow;
 
+    // Точные счётчики за последние 5, 10, 20 спинов (без округления)
+    const last5 = history.slice(-5);
+    const last10 = history.slice(-10);
+    const last20 = history.slice(-20);
+    const countLast5 = last5.filter((e) => e.number === number).length;
+    const countLast10 = last10.filter((e) => e.number === number).length;
+    const countLast20 = last20.filter((e) => e.number === number).length;
+    const denom5 = totalSpins > 0 ? Math.min(5, totalSpins) : 1;
+    const denom10 = totalSpins > 0 ? Math.min(10, totalSpins) : 1;
+    const denom20 = totalSpins > 0 ? Math.min(20, totalSpins) : 1;
+    const pctLast5 = exactPercent(countLast5, denom5);
+    const pctLast10 = exactPercent(countLast10, denom10);
+    const pctLast20 = exactPercent(countLast20, denom20);
+
     return {
       number,
       count,
@@ -80,6 +113,12 @@ function calculateNumberStatistics(
       averageInterval,
       isHot,
       isCold,
+      countLast5,
+      countLast10,
+      countLast20,
+      pctLast5,
+      pctLast10,
+      pctLast20,
     };
   });
 }
@@ -118,10 +157,17 @@ function calculateHotColdScore(
   return recentPercentage;
 }
 
-// Комбинации по ВСЕЙ истории: пары подряд (prev → next)
+// Комбинации по ВСЕЙ истории.
+// Пара: (history[i-1], history[i]). Всего пар = length - 1.
+// Тройка: (history[i-2], history[i-1], history[i]). Всего троек = length - 2.
+// Четвёрка: (history[i-3], history[i-2], history[i-1], history[i]). Всего четвёрок = length - 3.
 function computeCombinationStats(history: HistoryEntry[]): CombinationStats {
-  const pairCounts = new Map<string, number>(); // ключ "prev-next"
-  const prevTotals = new Map<number, number>(); // сколько раз каждое число было prev
+  const totalPairs = Math.max(0, history.length - 1);
+  const totalTriples = Math.max(0, history.length - 2);
+  const totalQuadruples = Math.max(0, history.length - 3);
+
+  const pairCounts = new Map<string, number>(); // ключ "prev-next", значение — сколько раз эта пара подряд
+  const prevTotals = new Map<number, number>(); // для каждого prev: сколько раз он был предыдущим спином
 
   for (let i = 1; i < history.length; i++) {
     const prev = history[i - 1].number;
@@ -144,15 +190,111 @@ function computeCombinationStats(history: HistoryEntry[]): CombinationStats {
     ROULETTE_NUMBERS.forEach((next) => {
       const key = `${prev}-${next}`;
       const count = pairCounts.get(key) ?? 0;
-      const percentage = totalPrev > 0 ? (count / totalPrev) * 100 : 0;
+      const percentage = exactPercent(count, totalPrev);
       const pair: PairCombination = { prev, next, count, percentage };
       pairs.push(pair);
       pairsByPrev[prev].push(pair);
     });
+    normalizePercentages(pairsByPrev[prev]);
     pairsByPrev[prev].sort((a, b) => b.percentage - a.percentage);
   });
 
-  return { pairs, pairsByPrev };
+  // Тройки: prev2 → prev1 → next (ключ "prev2-prev1", значение — массив троек по next)
+  const tripleCounts = new Map<string, number>(); // ключ "prev2-prev1-next"
+  const prev2Prev1Totals = new Map<string, number>(); // ключ "prev2-prev1"
+
+  for (let i = 2; i < history.length; i++) {
+    const prev2 = history[i - 2].number;
+    const prev1 = history[i - 1].number;
+    const next = history[i].number;
+    const key = `${prev2}-${prev1}-${next}`;
+    const keyPrev = `${prev2}-${prev1}`;
+    tripleCounts.set(key, (tripleCounts.get(key) ?? 0) + 1);
+    prev2Prev1Totals.set(keyPrev, (prev2Prev1Totals.get(keyPrev) ?? 0) + 1);
+  }
+
+  const triples: TripleCombination[] = [];
+  const triplesByPrev2Prev1: Record<string, TripleCombination[]> = {};
+
+  const prevPairs: Array<[RouletteNumber, RouletteNumber]> = [];
+  ROULETTE_NUMBERS.forEach((p2) => {
+    ROULETTE_NUMBERS.forEach((p1) => {
+      prevPairs.push([p2, p1]);
+    });
+  });
+
+  prevPairs.forEach(([prev2, prev1]) => {
+    const keyPrev = `${prev2}-${prev1}`;
+    const totalPrev2Prev1 = prev2Prev1Totals.get(keyPrev) ?? 0;
+    const list: TripleCombination[] = [];
+    ROULETTE_NUMBERS.forEach((next) => {
+      const key = `${prev2}-${prev1}-${next}`;
+      const count = tripleCounts.get(key) ?? 0;
+      const percentage = exactPercent(count, totalPrev2Prev1);
+      const triple: TripleCombination = { prev2, prev1, next, count, percentage };
+      triples.push(triple);
+      list.push(triple);
+    });
+    normalizePercentages(list);
+    list.sort((a, b) => b.percentage - a.percentage);
+    triplesByPrev2Prev1[keyPrev] = list;
+  });
+
+  // Четвёрки: prev3 → prev2 → prev1 → next (ключ "prev3-prev2-prev1")
+  const quadCounts = new Map<string, number>(); // "prev3-prev2-prev1-next"
+  const prev3Prev2Prev1Totals = new Map<string, number>(); // "prev3-prev2-prev1"
+
+  for (let i = 3; i < history.length; i++) {
+    const prev3 = history[i - 3].number;
+    const prev2 = history[i - 2].number;
+    const prev1 = history[i - 1].number;
+    const next = history[i].number;
+    const key = `${prev3}-${prev2}-${prev1}-${next}`;
+    const keyPrev = `${prev3}-${prev2}-${prev1}`;
+    quadCounts.set(key, (quadCounts.get(key) ?? 0) + 1);
+    prev3Prev2Prev1Totals.set(keyPrev, (prev3Prev2Prev1Totals.get(keyPrev) ?? 0) + 1);
+  }
+
+  const quadruples: QuadrupleCombination[] = [];
+  const quadruplesByPrev3Prev2Prev1: Record<string, QuadrupleCombination[]> = {};
+
+  const prevTriples: Array<[RouletteNumber, RouletteNumber, RouletteNumber]> = [];
+  ROULETTE_NUMBERS.forEach((p3) => {
+    ROULETTE_NUMBERS.forEach((p2) => {
+      ROULETTE_NUMBERS.forEach((p1) => {
+        prevTriples.push([p3, p2, p1]);
+      });
+    });
+  });
+
+  prevTriples.forEach(([prev3, prev2, prev1]) => {
+    const keyPrev = `${prev3}-${prev2}-${prev1}`;
+    const totalPrev3Prev2Prev1 = prev3Prev2Prev1Totals.get(keyPrev) ?? 0;
+    const list: QuadrupleCombination[] = [];
+    ROULETTE_NUMBERS.forEach((next) => {
+      const key = `${prev3}-${prev2}-${prev1}-${next}`;
+      const count = quadCounts.get(key) ?? 0;
+      const percentage = exactPercent(count, totalPrev3Prev2Prev1);
+      const quad: QuadrupleCombination = { prev3, prev2, prev1, next, count, percentage };
+      quadruples.push(quad);
+      list.push(quad);
+    });
+    normalizePercentages(list);
+    list.sort((a, b) => b.percentage - a.percentage);
+    quadruplesByPrev3Prev2Prev1[keyPrev] = list;
+  });
+
+  return {
+    pairs,
+    pairsByPrev,
+    totalPairs,
+    triples,
+    triplesByPrev2Prev1,
+    totalTriples,
+    quadruples,
+    quadruplesByPrev3Prev2Prev1,
+    totalQuadruples,
+  };
 }
 
 // Аналитика по частотам: на какой длине серии число обрывается (падает)
@@ -196,13 +338,14 @@ function computeStreakBreakStats(history: HistoryEntry[]): StreakBreakStats[] {
     let maxCount = 0;
     for (let len = 1; len <= maxObservedStreak; len++) {
       const count = countByLength.get(len) ?? 0;
-      const percentage = totalStreaks > 0 ? (count / totalStreaks) * 100 : 0;
+      const percentage = exactPercent(count, totalStreaks);
       breakDistribution.push({ streakLength: len, count, percentage });
       if (count > maxCount) {
         maxCount = count;
         mostCommonBreakAfter = len;
       }
     }
+    normalizePercentages(breakDistribution);
     breakDistribution.sort((a, b) => b.percentage - a.percentage);
 
     return {
@@ -256,24 +399,90 @@ function calculateTrendScore(stats: NumberStatistics, history: HistoryEntry[]): 
   return weightedPercentage;
 }
 
-// Анализ вероятностей с учётом серий подряд (штраф, если число уже долго идёт)
+// Процент по комбинации: приоритет — четвёрка (3 последних спина) > тройка (2 последних) > пара (1 последний)
+function getCombinationScore(
+  number: RouletteNumber,
+  history: HistoryEntry[],
+  combinationStats: CombinationStats
+): { score: number; source: 'pair' | 'triple' | 'quadruple' | null; count: number } {
+  // Четвёрка: последние три спина (prev3, prev2, prev1) → что выпадает следующим
+  if (history.length >= 4) {
+    const prev3 = history[history.length - 3].number;
+    const prev2 = history[history.length - 2].number;
+    const prev1 = history[history.length - 1].number;
+    const key = `${prev3}-${prev2}-${prev1}`;
+    const list = combinationStats.quadruplesByPrev3Prev2Prev1[key];
+    if (list) {
+      const quad = list.find((q) => q.next === number);
+      return {
+        score: quad?.percentage ?? 0,
+        source: 'quadruple',
+        count: quad?.count ?? 0,
+      };
+    }
+  }
+  // Тройка: последние два спина (prev2, prev1) → что выпадает следующим
+  if (history.length >= 2) {
+    const prev2 = history[history.length - 2].number;
+    const prev1 = history[history.length - 1].number;
+    const key = `${prev2}-${prev1}`;
+    const list = combinationStats.triplesByPrev2Prev1[key];
+    if (list) {
+      const triple = list.find((t) => t.next === number);
+      return {
+        score: triple?.percentage ?? 0,
+        source: 'triple',
+        count: triple?.count ?? 0,
+      };
+    }
+  }
+  // Пара: последний спин (prev) → что выпадает следующим
+  if (history.length >= 1) {
+    const prev = history[history.length - 1].number;
+    const list = combinationStats.pairsByPrev[prev];
+    if (list) {
+      const pair = list.find((p) => p.next === number);
+      return {
+        score: pair?.percentage ?? 0,
+        source: 'pair',
+        count: pair?.count ?? 0,
+      };
+    }
+  }
+  return { score: 0, source: null, count: 0 };
+}
+
+// Анализ вероятностей: при наличии истории — процент по комбинациям (пары/тройки), иначе по частоте
 function analyzeProbabilities(
   statistics: NumberStatistics[],
   history: HistoryEntry[],
+  combinationStats: CombinationStats,
   config: AnalysisConfig = DEFAULT_CONFIG,
   streakBreakStats?: StreakBreakStats[]
 ): ProbabilityAnalysis[] {
   const totalSpins = history.length;
+  const hasCombinationData = totalSpins >= 1;
 
   return statistics.map((stats) => {
     const frequencyScore = calculateFrequencyScore(stats, totalSpins);
     const hotColdScore = calculateHotColdScore(stats, history, config.recentSpinsWindow);
     const trendScore = calculateTrendScore(stats, history);
 
-    let probability =
-      frequencyScore * config.frequencyWeight +
-      hotColdScore * config.hotColdWeight +
-      trendScore * config.trendWeight;
+    const { score: combinationScore, source: combinationSource, count: combinationCount } =
+      getCombinationScore(stats.number, history, combinationStats);
+
+    // Если есть комбинация (пара / тройка / четвёрка) — вероятность = процент по комбинации
+    let probability: number;
+    if (hasCombinationData && (combinationSource === 'pair' || combinationSource === 'triple' || combinationSource === 'quadruple')) {
+      probability = combinationScore;
+      // Лёгкая подмесь частоты, если по комбинации 0% (такая комбинация не встречалась)
+      if (probability === 0) probability = Math.min(15, frequencyScore * 0.5);
+    } else {
+      probability =
+        frequencyScore * config.frequencyWeight +
+        hotColdScore * config.hotColdWeight +
+        trendScore * config.trendWeight;
+    }
 
     // Учёт серии подряд: если число уже выпало N раз подряд, снижаем шанс по статистике обрывов
     const currentStreak = getCurrentStreak(history, stats.number);
@@ -286,7 +495,6 @@ function analyzeProbabilities(
         const cumulativeBreakPct = streakStat.breakDistribution
           .filter((b) => b.streakLength <= currentStreak)
           .reduce((sum, b) => sum + b.percentage, 0);
-        // Чем чаще серия обрывается на этой длине (или короче), тем сильнее штраф
         const penalty = Math.min(35, (breakAtThisLength?.percentage ?? cumulativeBreakPct * 0.5) * 0.8);
         probability = Math.max(5, probability - penalty);
       }
@@ -298,6 +506,7 @@ function analyzeProbabilities(
     else if (totalSpins >= 15) confidence = 0.6;
     else if (totalSpins >= 5) confidence = 0.4;
     else confidence = 0.2;
+    if (hasCombinationData && combinationCount > 0) confidence = Math.min(0.95, confidence + 0.1);
 
     return {
       number: stats.number,
@@ -306,6 +515,9 @@ function analyzeProbabilities(
       hotColdScore,
       trendScore,
       confidence,
+      combinationScore,
+      combinationSource,
+      combinationCount,
     };
   });
 }
@@ -346,26 +558,40 @@ function generateRecommendations(
 
     // Число уже долго идёт подряд — по истории серия часто обрывается (снижаем шанс)
     if (currentStreak >= 1 && breakAtStreak && breakAtStreak.percentage >= 25) {
-      reason = `Сейчас ${prob.number} выпало ${currentStreak} раз подряд — в ${breakAtStreak.percentage.toFixed(0)}% случаев серия обрывается на этой длине`;
+      reason = `Сейчас ${prob.number} выпало ${currentStreak} раз подряд — в ${breakAtStreak.percentage.toFixed(2)}% случаев серия обрывается на этой длине`;
     }
-    // Рекомендуем другое число: после текущего чаще всего выпадает это
+    // Процент по комбинации: пара / тройка / четвёрка
+    if (!reason && (prob.combinationSource === 'pair' || prob.combinationSource === 'triple' || prob.combinationSource === 'quadruple') && prob.combinationCount > 0) {
+      if (prob.combinationSource === 'quadruple' && history.length >= 4) {
+        const prev3 = history[history.length - 3].number;
+        const prev2 = history[history.length - 2].number;
+        const prev1 = history[history.length - 1].number;
+        reason = `${prefix}По комбинации (после ${prev3}→${prev2}→${prev1}): выпадает в ${prob.combinationScore.toFixed(2)}% случаев (${prob.combinationCount} раз)`;
+      } else if (prob.combinationSource === 'triple' && history.length >= 2) {
+        const prev2 = history[history.length - 2].number;
+        const prev1 = history[history.length - 1].number;
+        reason = `${prefix}По комбинации (после ${prev2}→${prev1}): выпадает в ${prob.combinationScore.toFixed(2)}% случаев (${prob.combinationCount} раз)`;
+      } else if (prob.combinationSource === 'pair' && lastNumber !== null) {
+        reason = `${prefix}По комбинации (после ${lastNumber}): выпадает в ${prob.combinationScore.toFixed(2)}% случаев (${prob.combinationCount} раз)`;
+      }
+    }
     if (!reason && lastNumber !== null && combinationStats.pairsByPrev[lastNumber]?.length) {
       const bestAfter = combinationStats.pairsByPrev[lastNumber][0];
       if (bestAfter.next === prob.number && bestAfter.count > 0) {
-        reason = `${prefix}После ${lastNumber} чаще всего выпадает ${prob.number} (${bestAfter.percentage.toFixed(0)}%, ${bestAfter.count} раз)`;
+        reason = `${prefix}После ${lastNumber} чаще всего выпадает ${prob.number} (${bestAfter.percentage.toFixed(2)}%, ${bestAfter.count} раз)`;
       }
     }
     if (!reason && prob.frequencyScore >= 25) {
-      reason = `${prefix}По всей истории: выпадает в ${stats.percentage.toFixed(0)}% спинов (${stats.count} раз)`;
+      reason = `${prefix}По всей истории: выпадает в ${stats.percentage.toFixed(2)}% спинов (${stats.count} раз)`;
     }
     if (!reason && stats.isHot) {
-      reason = `${prefix}Горячее: часто в последних спинах (${prob.hotColdScore.toFixed(0)}%)`;
+      reason = `${prefix}Горячее: часто в последних спинах (${prob.hotColdScore.toFixed(2)}%)`;
     }
     if (!reason && stats.isCold) {
       reason = `${prefix}Холодное: давно не выпадало, может скоро выпасть`;
     }
     if (!reason) {
-      reason = `${prefix}Сбалансированный выбор (частота ${prob.frequencyScore.toFixed(0)}%)`;
+      reason = `${prefix}Сбалансированный выбор (частота ${prob.frequencyScore.toFixed(2)}%)`;
     }
     reason = reason.trim();
 
@@ -374,6 +600,8 @@ function generateRecommendations(
       probability: prob.probability,
       confidence: prob.confidence,
       reason,
+      combinationSource: prob.combinationSource,
+      combinationCount: prob.combinationCount,
     };
   });
 }
@@ -389,6 +617,7 @@ export function analyzeRouletteHistory(
   const probabilities = analyzeProbabilities(
     numberStats,
     history,
+    combinationStats,
     config,
     streakBreakStats
   );

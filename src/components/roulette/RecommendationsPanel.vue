@@ -25,24 +25,6 @@ function getNumberColor(number: RouletteNumber): string {
   return numberColors[number];
 }
 
-// Получение текста уровня уверенности
-function getConfidenceText(confidence: number): string {
-  if (confidence >= 0.8) return 'Очень надёжно';
-  if (confidence >= 0.6) return 'Надёжно';
-  if (confidence >= 0.4) return 'Средне';
-  if (confidence >= 0.2) return 'Мало данных';
-  return 'Очень мало данных';
-}
-
-// Получение класса для уровня уверенности
-function getConfidenceClass(confidence: number): string {
-  if (confidence >= 0.8) return 'very-high';
-  if (confidence >= 0.6) return 'high';
-  if (confidence >= 0.4) return 'medium';
-  if (confidence >= 0.2) return 'low';
-  return 'very-low';
-}
-
 // Установка ссылки на карточку
 function setCardRef(index: number): (el: any) => void {
   return (el: any) => {
@@ -118,20 +100,9 @@ onMounted(() => {
 
         <div class="card-body">
           <div class="probability-info">
-            <span class="label">Шанс по анализу:</span>
-            <span class="value">{{ rec.probability.toFixed(1) }}%</span>
-          </div>
-
-          <div class="confidence-info">
-            <span class="label">Надёжность вывода:</span>
-            <div class="confidence-bar-container">
-              <div
-                class="confidence-bar"
-                :class="getConfidenceClass(rec.confidence)"
-                :style="{ width: `${rec.confidence * 100}%` }"
-              ></div>
-            </div>
-            <span class="confidence-text">{{ getConfidenceText(rec.confidence) }}</span>
+            <span class="label">{{ rec.combinationSource ? 'Шанс по комбинации:' : 'Шанс по анализу:' }}</span>
+            <span class="value">{{ rec.probability.toFixed(2) }}%</span>
+            <span v-if="rec.combinationCount > 0" class="combination-count">({{ rec.combinationCount }} раз в истории)</span>
           </div>
 
           <div class="reason">
@@ -266,8 +237,10 @@ onMounted(() => {
 
 .probability-info {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  gap: 0.35rem;
   font-size: 1.1rem;
 
   .label {
@@ -278,6 +251,12 @@ onMounted(() => {
     font-size: 1.5rem;
     font-weight: 700;
     color: var(--number-color);
+  }
+
+  .combination-count {
+    width: 100%;
+    font-size: 0.85rem;
+    opacity: 0.85;
   }
 }
 

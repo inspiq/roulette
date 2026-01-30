@@ -83,7 +83,7 @@ function getNumberColor(number: RouletteNumber): string {
         :style="{ '--number-color': getNumberColor(number as RouletteNumber) }"
         @click="handleNumberClick(number as RouletteNumber, $event)"
       >
-        {{ number }}
+        {{ number }}x
       </button>
     </div>
   </div>

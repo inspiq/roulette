@@ -109,7 +109,7 @@ onMounted(() => {
         <div class="bar-header">
           <div class="bar-label">
             <span class="bar-number">{{ prob.number }}</span>
-            <span class="bar-value">{{ prob.probability.toFixed(1) }}%</span>
+            <span class="bar-value">{{ prob.probability.toFixed(2) }}%</span>
           </div>
           <div class="confidence-badge" :title="`Насколько данных хватает для вывода: ${(prob.confidence * 100).toFixed(0)}%`">
             <svg
@@ -137,9 +137,16 @@ onMounted(() => {
         </div>
 
         <div class="bar-details">
+          <template v-if="prob.combinationSource">
+            <div class="detail-item highlight">
+              <span class="detail-label">По комбинации (после последних спинов):</span>
+              <span class="detail-value">{{ prob.combinationScore.toFixed(2) }}%</span>
+              <span v-if="prob.combinationCount > 0" class="detail-count">— {{ prob.combinationCount }} раз</span>
+            </div>
+          </template>
           <div class="detail-item">
-            <span class="detail-label">Как часто выпадало (по всей истории):</span>
-            <span class="detail-value">{{ prob.frequencyScore.toFixed(1) }}%</span>
+            <span class="detail-label">По всей истории:</span>
+            <span class="detail-value">{{ prob.frequencyScore.toFixed(2) }}%</span>
           </div>
         </div>
       </div>
@@ -290,6 +297,18 @@ onMounted(() => {
   .detail-value {
     font-weight: 600;
     color: var(--number-color);
+  }
+
+  .detail-count {
+    font-size: 0.8rem;
+    opacity: 0.85;
+  }
+
+  &.highlight {
+    .detail-label,
+    .detail-value {
+      color: #f2a100;
+    }
   }
 }
 

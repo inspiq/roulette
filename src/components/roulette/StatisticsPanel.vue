@@ -23,7 +23,7 @@ function getNumberColor(number: RouletteNumber): string {
 
 // Форматирование процентов
 function formatPercentage(value: number): string {
-  return value.toFixed(1);
+  return value.toFixed(2);
 }
 
 // Вычисление текста последнего выпадения
@@ -103,6 +103,18 @@ const sortedStatistics = computed(() => {
             <div v-if="stat.averageInterval > 0" class="stat-row">
               <span class="stat-label">В среднем через сколько спинов выпадает снова:</span>
               <span class="stat-value small">{{ stat.averageInterval.toFixed(1) }}</span>
+            </div>
+            <div class="stat-row period-row">
+              <span class="stat-label">В последних 5 спинах:</span>
+              <span class="stat-value">{{ stat.countLast5 }} ({{ formatPercentage(stat.pctLast5) }}%)</span>
+            </div>
+            <div class="stat-row period-row">
+              <span class="stat-label">В последних 10 спинах:</span>
+              <span class="stat-value">{{ stat.countLast10 }} ({{ formatPercentage(stat.pctLast10) }}%)</span>
+            </div>
+            <div class="stat-row period-row">
+              <span class="stat-label">В последних 20 спинах:</span>
+              <span class="stat-value">{{ stat.countLast20 }} ({{ formatPercentage(stat.pctLast20) }}%)</span>
             </div>
           </div>
         </div>
@@ -243,6 +255,12 @@ const sortedStatistics = computed(() => {
     &.small {
       font-size: 0.85rem;
     }
+  }
+
+  &.period-row {
+    font-size: 0.85rem;
+    padding-top: 0.25rem;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
   }
 }
 

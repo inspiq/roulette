@@ -67,7 +67,7 @@ function streakLabel(len: number): string {
             >
               <span class="dist-label">Обрыв после {{ streakLabel(item.streakLength) }}:</span>
               <span class="dist-count">{{ item.count }} раз</span>
-              <span class="dist-pct">{{ item.percentage.toFixed(0) }}%</span>
+              <span class="dist-pct">{{ item.percentage.toFixed(2) }}%</span>
               <div class="dist-bar" :style="{ width: `${item.percentage}%` }"></div>
             </div>
           </div>

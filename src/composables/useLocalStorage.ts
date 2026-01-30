@@ -8,20 +8,27 @@ export function useLocalStorage() {
   const history: Ref<HistoryEntry[]> = ref([]);
   const isLoaded = ref(false);
 
+  // Санитизация записей истории (как при загрузке из localStorage)
+  function sanitizeHistory(raw: unknown[]): HistoryEntry[] {
+    return raw
+      .filter((e: unknown): e is Partial<HistoryEntry> => {
+        const o = e as Record<string, unknown>;
+        return o != null && typeof o === 'object' && o.number != null && ROULETTE_NUMBERS.includes(o.number as HistoryEntry['number']);
+      })
+      .map((entry: Partial<HistoryEntry>) => ({
+        id: entry.id ?? `${entry.timestamp ?? Date.now()}-${Math.random()}`,
+        number: entry.number as HistoryEntry['number'],
+        timestamp: typeof entry.timestamp === 'number' ? entry.timestamp : Date.now(),
+      }));
+  }
+
   // Загрузка данных из localStorage
   const loadFromStorage = (): void => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const data: StorageData = JSON.parse(stored);
-        const raw = data.history || [];
-        history.value = raw
-          .filter((e: Partial<HistoryEntry>) => e?.number != null && ROULETTE_NUMBERS.includes(e.number as any))
-          .map((entry: Partial<HistoryEntry>) => ({
-            id: entry.id ?? `${entry.timestamp ?? Date.now()}-${Math.random()}`,
-            number: entry.number as HistoryEntry['number'],
-            timestamp: entry.timestamp ?? Date.now(),
-          }));
+        history.value = sanitizeHistory(data.history || []);
       }
       isLoaded.value = true;
     } catch (error) {
@@ -66,9 +73,9 @@ export function useLocalStorage() {
   // Импорт данных из JSON
   const importData = (jsonString: string): boolean => {
     try {
-      const data: StorageData = JSON.parse(jsonString);
+      const data = JSON.parse(jsonString) as StorageData;
       if (data.history && Array.isArray(data.history)) {
-        history.value = data.history;
+        history.value = sanitizeHistory(data.history);
         saveToStorage();
         return true;
       }
