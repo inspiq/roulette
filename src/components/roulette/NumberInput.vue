@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref } from 'vue';
 import gsap from 'gsap';
-import { ROULETTE_NUMBERS } from '@/types/roulette';
 import type { RouletteNumber } from '@/types/roulette';
 
 // Эмиты
@@ -70,28 +69,6 @@ function createParticle(number: RouletteNumber, event: MouseEvent): void {
 function getNumberColor(number: RouletteNumber): string {
   return numberColors[number];
 }
-
-onMounted(() => {
-  // Отключаем анимацию для отладки - кнопки должны быть видны сразу
-  // Анимация появления кнопок
-  // const buttons = document.querySelectorAll('.number-button');
-  // if (buttons.length > 0) {
-  //   gsap.fromTo(
-  //     buttons,
-  //     {
-  //       scale: 0,
-  //       opacity: 0,
-  //     },
-  //     {
-  //       scale: 1,
-  //       opacity: 1,
-  //       duration: 0.5,
-  //       stagger: 0.1,
-  //       ease: 'back.out(1.7)',
-  //     }
-  //   );
-  // }
-});
 </script>
 
 <template>
@@ -103,8 +80,8 @@ onMounted(() => {
         :key="number"
         class="number-button"
         :class="{ active: lastAddedNumber === number }"
-        :style="{ '--number-color': getNumberColor(number) }"
-        @click="handleNumberClick(number, $event)"
+        :style="{ '--number-color': getNumberColor(number as RouletteNumber) }"
+        @click="handleNumberClick(number as RouletteNumber, $event)"
       >
         {{ number }}
       </button>
