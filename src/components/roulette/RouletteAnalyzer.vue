@@ -8,6 +8,7 @@ import HistoryList from './HistoryList.vue';
 import StatisticsPanel from './StatisticsPanel.vue';
 import ProbabilityChart from './ProbabilityChart.vue';
 import RecommendationsPanel from './RecommendationsPanel.vue';
+import CombinationsPanel from './CombinationsPanel.vue';
 
 // Инициализация хранилища
 const { history, clearStorage } = useLocalStorage();
@@ -77,6 +78,14 @@ const analysis = computed(() => {
       <section class="section chart-section">
         <h2>Вероятности выпадения</h2>
         <ProbabilityChart :probabilities="analysis.probabilities" />
+      </section>
+
+      <!-- Комбинации по всей истории -->
+      <section class="section combinations-section">
+        <CombinationsPanel
+          :combination-stats="analysis.combinationStats"
+          :total-spins="analysis.totalSpins"
+        />
       </section>
 
       <!-- Статистика -->

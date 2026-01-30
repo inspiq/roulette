@@ -38,12 +38,27 @@ export interface Recommendation {
   reason: string; // причина рекомендации
 }
 
+// Комбинация: пара чисел подряд (предыдущее → следующее)
+export interface PairCombination {
+  prev: RouletteNumber;   // что выпало перед
+  next: RouletteNumber;  // что выпало после
+  count: number;         // сколько раз такая пара встречалась
+  percentage: number;    // доля от всех пар с таким prev
+}
+
+// Статистика комбинаций по всей истории
+export interface CombinationStats {
+  pairs: PairCombination[];  // все пары (prev → next) по всей истории
+  pairsByPrev: Record<RouletteNumber, PairCombination[]>; // для каждого prev — какие next шли после
+}
+
 // Общая статистика
 export interface OverallStatistics {
   totalSpins: number;
   numberStats: NumberStatistics[];
   probabilities: ProbabilityAnalysis[];
   recommendations: Recommendation[];
+  combinationStats: CombinationStats; // комбинации по всей истории
 }
 
 // Данные для localStorage

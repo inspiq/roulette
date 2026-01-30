@@ -5,6 +5,9 @@ import type {
   Recommendation,
   OverallStatistics,
   AnalysisConfig,
+  PairCombination,
+  CombinationStats,
+  RouletteNumber,
 } from '@/types/roulette';
 import { ROULETTE_NUMBERS } from '@/types/roulette';
 
@@ -13,9 +16,9 @@ const DEFAULT_CONFIG: AnalysisConfig = {
   recentSpinsWindow: 15, // анализируем последние 15 спинов для "горячих" чисел
   hotThreshold: 0.35, // если число выпало >35% в последних спинах - горячее
   coldThreshold: 0.1, // если число выпало <10% в последних спинах - холодное
-  frequencyWeight: 0.3, // вес частотного анализа
-  hotColdWeight: 0.4, // вес горячих/холодных чисел
-  trendWeight: 0.3, // вес тренда
+  frequencyWeight: 0.6, // основной вес — по всей истории
+  hotColdWeight: 0.2,
+  trendWeight: 0.2,
 };
 
 // Вычисление статистики для каждого числа
@@ -113,6 +116,43 @@ function calculateHotColdScore(
   return recentPercentage;
 }
 
+// Комбинации по ВСЕЙ истории: пары подряд (prev → next)
+function computeCombinationStats(history: HistoryEntry[]): CombinationStats {
+  const pairCounts = new Map<string, number>(); // ключ "prev-next"
+  const prevTotals = new Map<number, number>(); // сколько раз каждое число было prev
+
+  for (let i = 1; i < history.length; i++) {
+    const prev = history[i - 1].number;
+    const next = history[i].number;
+    const key = `${prev}-${next}`;
+    pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
+    prevTotals.set(prev, (prevTotals.get(prev) ?? 0) + 1);
+  }
+
+  const pairs: PairCombination[] = [];
+  const pairsByPrev: Record<RouletteNumber, PairCombination[]> = {
+    2: [],
+    3: [],
+    5: [],
+    10: [],
+  };
+
+  ROULETTE_NUMBERS.forEach((prev) => {
+    const totalPrev = prevTotals.get(prev) ?? 0;
+    ROULETTE_NUMBERS.forEach((next) => {
+      const key = `${prev}-${next}`;
+      const count = pairCounts.get(key) ?? 0;
+      const percentage = totalPrev > 0 ? (count / totalPrev) * 100 : 0;
+      const pair: PairCombination = { prev, next, count, percentage };
+      pairs.push(pair);
+      pairsByPrev[prev].push(pair);
+    });
+    pairsByPrev[prev].sort((a, b) => b.percentage - a.percentage);
+  });
+
+  return { pairs, pairsByPrev };
+}
+
 // Расчет веса тренда (учитываем недавние выпадения с большим весом)
 function calculateTrendScore(stats: NumberStatistics, history: HistoryEntry[]): number {
   if (history.length === 0) return 25; // базовое значение
@@ -180,30 +220,38 @@ function analyzeProbabilities(
   });
 }
 
-// Генерация рекомендаций
+// Генерация рекомендаций (по всей истории + комбинации)
 function generateRecommendations(
   probabilities: ProbabilityAnalysis[],
-  statistics: NumberStatistics[]
+  statistics: NumberStatistics[],
+  history: HistoryEntry[],
+  combinationStats: CombinationStats
 ): Recommendation[] {
-  // Сортируем по вероятности
   const sorted = [...probabilities].sort((a, b) => b.probability - a.probability);
+  const lastNumber = history.length > 0 ? history[history.length - 1].number : null;
 
-  // Берем топ-2 числа
   return sorted.slice(0, 2).map((prob) => {
     const stats = statistics.find((s) => s.number === prob.number)!;
-
-    // Генерируем причину рекомендации
     let reason = '';
-    if (stats.isHot) {
-      reason = `Горячее число: выпадает часто в последних спинах (${prob.hotColdScore.toFixed(1)}%)`;
-    } else if (stats.isCold) {
-      reason = `Холодное число: давно не выпадало, может скоро выпасть`;
-    } else if (prob.trendScore > prob.frequencyScore && prob.trendScore > prob.hotColdScore) {
-      reason = `Растущий тренд: выпадения становятся чаще`;
-    } else if (prob.frequencyScore > 30) {
-      reason = `Высокая частота: часто выпадает в общей статистике (${stats.percentage.toFixed(1)}%)`;
-    } else {
-      reason = `Сбалансированный выбор на основе комбинированного анализа`;
+
+    // Приоритет: комбинации по всей истории (после какого числа чаще выпадает)
+    if (lastNumber !== null && combinationStats.pairsByPrev[lastNumber]?.length) {
+      const bestAfter = combinationStats.pairsByPrev[lastNumber][0];
+      if (bestAfter.next === prob.number && bestAfter.count > 0) {
+        reason = `По всей истории после ${lastNumber} чаще всего выпадает ${prob.number} (${bestAfter.percentage.toFixed(0)}%, ${bestAfter.count} раз)`;
+      }
+    }
+    if (!reason && prob.frequencyScore >= 25) {
+      reason = `По всей истории: выпадает в ${stats.percentage.toFixed(0)}% спинов (${stats.count} раз)`;
+    }
+    if (!reason && stats.isHot) {
+      reason = `Горячее: часто в последних спинах (${prob.hotColdScore.toFixed(0)}%)`;
+    }
+    if (!reason && stats.isCold) {
+      reason = `Холодное: давно не выпадало, может скоро выпасть`;
+    }
+    if (!reason) {
+      reason = `Сбалансированный выбор (частота ${prob.frequencyScore.toFixed(0)}%)`;
     }
 
     return {
@@ -222,13 +270,20 @@ export function analyzeRouletteHistory(
 ): OverallStatistics {
   const numberStats = calculateNumberStatistics(history, config);
   const probabilities = analyzeProbabilities(numberStats, history, config);
-  const recommendations = generateRecommendations(probabilities, numberStats);
+  const combinationStats = computeCombinationStats(history);
+  const recommendations = generateRecommendations(
+    probabilities,
+    numberStats,
+    history,
+    combinationStats
+  );
 
   return {
     totalSpins: history.length,
     numberStats,
     probabilities,
     recommendations,
+    combinationStats,
   };
 }
 
